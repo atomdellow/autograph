@@ -25,6 +25,13 @@
       :connect-mode="ConnectionMode.Loose"
       @connect="onConnect"
     >
+      <template #node-default="nodeProps">
+        <CustomNode 
+          :id="nodeProps.id"
+          :data="nodeProps.data"
+          :edges="elements.filter(el => el.source && el.target)"
+        />
+      </template>
     </VueFlow>
 
     <NodeDetails 
@@ -39,14 +46,15 @@
 
 <script setup>
 import { VueFlow, useVueFlow, ConnectionMode } from '@vue-flow/core'
-import { ref, onMounted, markRaw } from 'vue'
+import { ref, computed, onMounted, markRaw } from 'vue'
 import { NODE_COLORS, NODE_ICONS } from '../constants/nodeTypes'
 import CustomNode from './CustomNode.vue'
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 import NodeDetails from './NodeDetails.vue'
+import { useGraphStore } from '../stores/graphStore'
 
-const elements = ref([])
+const store = useGraphStore()
 const selectedType = ref('PROJECT') // Default selected type
 const { fitView, project } = useVueFlow()
 const selectedNode = ref(null)
@@ -54,6 +62,9 @@ const selectedNode = ref(null)
 const nodeTypes = markRaw({
   custom: CustomNode
 })
+
+// Compute elements from store
+const elements = computed(() => [...store.nodes, ...store.edges])
 
 // Add handle styling
 const handleStyle = {
@@ -85,7 +96,7 @@ function onConnect(params) {
     source: params.source,
     target: params.target
   }
-  elements.value.push(newEdge)
+  store.addEdge(newEdge)
 }
 
 function addHandle(nodeId) {
@@ -123,17 +134,18 @@ function onPaneClick(evt) {
   const position = project({ x: evt.clientX, y: evt.clientY })
   
   const newNode = {
-    id: `${selectedType.value.toLowerCase()}-${elements.value.length + 1}`,
+    id: `${selectedType.value.toLowerCase()}-${store.nodes.length + 1}`,
     type: 'custom',  // Use our custom node type
     position,
     data: { 
-      label: `New ${selectedType.value.toLowerCase()}`,
       nodeType: selectedType.value,
-      name: `New ${selectedType.value.toLowerCase()}`
+      name: `New ${selectedType.value.toLowerCase()}`,
+      status: 'pending',
+      createdAt: Date.now()
     }
   }
   
-  elements.value.push(newNode)
+  store.addNode(newNode)
   console.log('Added node:', newNode)
 }
 
@@ -142,6 +154,20 @@ function updateNodeData({ id, data }) {
   if (node) {
     node.data = { ...node.data, ...data }
   }
+}
+
+function getNodeEdges(nodeId, type) {
+  return elements.value.filter(el => 
+    el.hasOwnProperty('source') && 
+    el.hasOwnProperty('target') && 
+    el[type] === nodeId
+  )
+}
+
+function getEdgesForNode(nodeId) {
+  return elements.value.filter(el => 
+    el.source && el.target && (el.source === nodeId || el.target === nodeId)
+  )
 }
 </script>
 
