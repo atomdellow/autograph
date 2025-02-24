@@ -88,7 +88,10 @@
 <script setup>
 import { ref, watch, computed } from 'vue'
 import { NODE_COLORS, NODE_ICONS } from '../constants/nodeTypes'
+import { NODE_SUBTYPES } from '../constants/nodeSubTypes'
+import { useGraphStore } from '../stores/graphStore'
 
+const store = useGraphStore()
 const props = defineProps({
   node: Object,
   edges: Array,
@@ -97,10 +100,10 @@ const props = defineProps({
 
 const emit = defineEmits(['update'])
 const nodeName = ref('')
+const description = ref('')
+const status = ref('pending')
 
 const activeTab = ref('general')
-const description = ref('')
-const status = ref('active')
 
 const tabs = [
   { id: 'general', label: 'General' },
@@ -143,9 +146,7 @@ watch(() => props.node, (newNode) => {
 
 const connections = computed(() => {
   if (!props.node) return []
-  
-  return props.edges
-    .filter(edge => edge.source === props.node.id || edge.target === props.node.id)
+  return store.getNodeConnections(props.node.id)
     .map(edge => {
       const isSource = edge.source === props.node.id
       const connectedNode = props.nodes.find(n => 

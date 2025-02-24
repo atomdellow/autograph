@@ -1,45 +1,56 @@
 <template>
   <div class="graphflow-container">
-    <!-- Simple toolbar -->
+    <!-- Main toolbar -->
     <div class="type-toolbar">
       <button 
         v-for="(icon, type) in NODE_ICONS" 
         :key="type"
         :class="['type-button', { active: selectedType === type }]"
-        @click="selectedType = type"
+        @click="onTypeSelect(type)"
       >
         <span class="icon">{{ icon }}</span>
         {{ type.toLowerCase() }}
       </button>
     </div>
 
+    <!-- Always show SubTypeToolbar when a type is selected -->
+    <SubTypeToolbar 
+      v-if="selectedType"
+      :selectedType="selectedType"
+      :activeSubType="selectedSubType"
+      @select="onSubTypeSelect"
+    />
+
     <VueFlow
-      v-model="elements"
+      :nodes="store.nodes"
+      :edges="store.edges"
       class="basicflow"
       :default-zoom="1.5"
       :min-zoom="0.2"
       :max-zoom="4"
       @paneClick="onPaneClick"
       @nodeClick="onNodeClick"
+      @nodesChange="onNodesChange"
+      @edgesChange="onEdgesChange"
       :node-types="nodeTypes"
       :connect-mode="ConnectionMode.Loose"
+      :default-edge-options="{ type: 'smoothstep' }"
       @connect="onConnect"
     >
       <template #node-default="nodeProps">
         <CustomNode 
           :id="nodeProps.id"
           :data="nodeProps.data"
-          :edges="elements.filter(el => el.source && el.target)"
         />
       </template>
     </VueFlow>
 
     <NodeDetails 
-      v-if="selectedNode"
-      :node="selectedNode"
-      :edges="elements.filter(el => el.source)"
-      :nodes="elements.filter(el => el.type)"
-      @update="updateNodeData"
+      v-if="store.selectedNode"
+      :node="store.selectedNode"
+      :edges="store.edges"
+      :nodes="store.nodes"
+      @update="(data) => store.updateNode(data.id, data.data)"
     />
   </div>
 </template>
@@ -53,27 +64,19 @@ import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 import NodeDetails from './NodeDetails.vue'
 import { useGraphStore } from '../stores/graphStore'
+import SubTypeToolbar from './SubTypeToolbar.vue'
+import { getSubTypeDefaults } from '../constants/nodeSubTypes'
 
 const store = useGraphStore()
-const selectedType = ref('PROJECT') // Default selected type
 const { fitView, project } = useVueFlow()
-const selectedNode = ref(null)
+const selectedType = ref('PROJECT')
+const selectedSubType = ref(null)
 
 const nodeTypes = markRaw({
   custom: CustomNode
 })
 
-// Compute elements from store
-const elements = computed(() => [...store.nodes, ...store.edges])
-
-// Add handle styling
-const handleStyle = {
-  width: '12px',
-  height: '12px',
-  background: 'white',
-  border: '2px solid #555',
-  borderRadius: '50%'
-}
+// Remove the elements computed property since we're using store directly
 
 onMounted(() => {
   console.log('Mounted')
@@ -84,90 +87,56 @@ onMounted(() => {
 })
 
 function onNodeClick(event) {
-  const { node } = event
-  selectedNode.value = node
-  console.log('Selected node:', node)
+  store.setSelectedNode(event.node)
 }
 
 function onConnect(params) {
-  console.log('Connection created:', params)
-  const newEdge = {
-    id: `edge-${params.source}-${params.target}`,
-    source: params.source,
-    target: params.target
-  }
-  store.addEdge(newEdge)
-}
-
-function addHandle(nodeId) {
-  const node = elements.value.find(el => el.id === nodeId)
-  if (!node) return
-
-  if (!node.data.handles) {
-    node.data.handles = []
-  }
-
-  const handleId = `handle-${node.data.handles.length + 1}`
-  node.data.handles.push({
-    id: handleId,
-    type: 'source'
+  // Create edge without modifying node positions
+  store.addEdge({
+    ...params,
+    // Ensure we're not passing position data
+    type: 'smoothstep'  // optional: makes connections look smoother
   })
-}
-
-function removeHandle(nodeId, handleId) {
-  const node = elements.value.find(el => el.id === nodeId)
-  if (!node) return
-
-  // Remove handle
-  node.data.handles = node.data.handles.filter(h => h.id !== handleId)
-  
-  // Remove any connections using this handle
-  elements.value = elements.value.filter(el => 
-    el.type !== 'edge' || 
-    (el.sourceHandle !== handleId && el.targetHandle !== handleId)
-  )
 }
 
 function onPaneClick(evt) {
   if (!selectedType.value) return
   
+  // Get correct position from mouse click
   const position = project({ x: evt.clientX, y: evt.clientY })
+  store.addNode(selectedType.value, selectedSubType.value, position)
+}
+
+function onTypeSelect(type) {
+  selectedType.value = type
+  selectedSubType.value = null // Reset subtype when changing main type
+}
+
+function onSubTypeSelect({ type, subType }) {
+  if (!type || !subType) return
   
-  const newNode = {
-    id: `${selectedType.value.toLowerCase()}-${store.nodes.length + 1}`,
-    type: 'custom',  // Use our custom node type
-    position,
-    data: { 
-      nodeType: selectedType.value,
-      name: `New ${selectedType.value.toLowerCase()}`,
-      status: 'pending',
-      createdAt: Date.now()
+  selectedSubType.value = subType
+
+  // Don't automatically create node when selecting subtype
+  // Wait for user to click on the pane instead
+}
+
+function onNodesChange(changes) {
+  changes.forEach(change => {
+    if (change.type === 'remove') {
+      store.removeNode(change.id)
+    } else if (change.type === 'position' && change.position) {
+      store.updateNodePosition(change.id, change.position)
     }
-  }
-  
-  store.addNode(newNode)
-  console.log('Added node:', newNode)
+  })
 }
 
-function updateNodeData({ id, data }) {
-  const node = elements.value.find(el => el.id === id)
-  if (node) {
-    node.data = { ...node.data, ...data }
-  }
-}
-
-function getNodeEdges(nodeId, type) {
-  return elements.value.filter(el => 
-    el.hasOwnProperty('source') && 
-    el.hasOwnProperty('target') && 
-    el[type] === nodeId
-  )
-}
-
-function getEdgesForNode(nodeId) {
-  return elements.value.filter(el => 
-    el.source && el.target && (el.source === nodeId || el.target === nodeId)
-  )
+function onEdgesChange(changes) {
+  changes.forEach(change => {
+    if (change.type === 'remove') {
+      store.removeEdge(change.id)
+    }
+  })
 }
 </script>
 
@@ -245,6 +214,7 @@ function getEdgesForNode(nodeId) {
   border-radius: 8px;
   box-shadow: 0 2px 6px rgba(0,0,0,0.1);
   z-index: 10;
+  margin-bottom: 60px; /* Make room for subtypes toolbar */
 }
 
 .type-button {

@@ -11,8 +11,11 @@
     
     <div class="node-content">
       <div class="node-header">
-        <span class="node-icon">{{ NODE_ICONS[data.nodeType] }}</span>
-        <span class="node-type">{{ data.nodeType }}</span>
+        <span class="node-icon">{{ data.icon || NODE_ICONS[data.nodeType] }}</span>
+        <div class="node-type-info">
+          <span class="node-type">{{ data.nodeType }}</span>
+          <span v-if="data.subType" class="node-subtype">{{ data.subType }}</span>
+        </div>
       </div>
       
       <div class="node-details">
@@ -53,7 +56,8 @@ const props = defineProps({
 const store = useGraphStore()
 
 const connectionCount = computed(() => {
-  return store.getNodeConnections(props.id).length
+  const connections = store.getNodeConnections(props.id)
+  return Array.isArray(connections) ? connections.length : 0
 })
 
 function truncate(str, length) {
@@ -83,10 +87,21 @@ function truncate(str, length) {
   border-bottom: 1px solid rgba(255, 255, 255, 0.2);
 }
 
+.node-type-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .node-type {
   font-weight: 600;
   text-transform: uppercase;
   font-size: 0.9em;
+}
+
+.node-subtype {
+  font-size: 0.8em;
+  opacity: 0.8;
 }
 
 .node-details {
